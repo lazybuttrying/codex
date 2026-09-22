@@ -665,7 +665,7 @@ fn read_curated_plugins_sha_reads_trimmed_sha_file() {
 
 #[cfg(unix)]
 #[test]
-fn remove_stale_curated_repo_temp_dirs_removes_only_matching_directories() {
+fn remove_stale_temp_dirs_removes_only_matching_directories() {
     use std::os::unix::ffi::OsStrExt;
     use std::time::SystemTime;
 
@@ -699,7 +699,11 @@ fn remove_stale_curated_repo_temp_dirs_removes_only_matching_directories() {
     .expect("age stale clone dir");
     set_dir_mtime(&fresh_clone_dir, Duration::ZERO).expect("age fresh clone dir");
 
-    remove_stale_curated_repo_temp_dirs(&parent, CURATED_PLUGINS_STALE_TEMP_DIR_MAX_AGE);
+    remove_stale_temp_dirs(
+        &parent,
+        CURATED_PLUGINS_TEMP_DIR_PREFIX,
+        CURATED_PLUGINS_STALE_TEMP_DIR_MAX_AGE,
+    );
 
     assert!(!stale_clone_dir.exists());
     assert!(fresh_clone_dir.is_dir());

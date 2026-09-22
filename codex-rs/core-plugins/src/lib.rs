@@ -32,6 +32,7 @@ mod remote_metadata;
 mod remote_plugin_id_resolver;
 mod script_attribution;
 mod skill_snapshots;
+mod stale_temp_dirs;
 pub mod startup_sync;
 pub mod store;
 #[cfg(test)]

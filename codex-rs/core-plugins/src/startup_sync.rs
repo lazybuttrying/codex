@@ -6,6 +6,8 @@ use std::process::Output;
 use std::process::Stdio;
 use std::time::Duration;
 
+use crate::stale_temp_dirs::remove_stale_temp_dirs;
+
 use self::http_client::StartupSyncHttpClient;
 use self::http_client::StartupSyncRequestBuilder;
 use codex_http_client::HttpClientFactory;
@@ -37,6 +39,7 @@ const CURATED_PLUGINS_GIT_TIMEOUT: Duration = Duration::from_secs(30);
 const CURATED_PLUGINS_HTTP_TIMEOUT: Duration = Duration::from_secs(30);
 const CURATED_PLUGINS_BACKUP_ARCHIVE_TIMEOUT: Duration = Duration::from_secs(30);
 // Keep this comfortably above a normal sync attempt so we do not race another Codex process.
+const CURATED_PLUGINS_TEMP_DIR_PREFIX: &str = "plugins-clone-";
 const CURATED_PLUGINS_STALE_TEMP_DIR_MAX_AGE: Duration = Duration::from_secs(10 * 60);
 #[derive(Debug, Deserialize)]
 struct GitHubRepositorySummary {
@@ -383,10 +386,14 @@ fn prepare_curated_repo_parent_and_temp_dir(repo_path: &Path) -> Result<TempDir,
             parent.display()
         )
     })?;
-    remove_stale_curated_repo_temp_dirs(parent, CURATED_PLUGINS_STALE_TEMP_DIR_MAX_AGE);
+    remove_stale_temp_dirs(
+        parent,
+        CURATED_PLUGINS_TEMP_DIR_PREFIX,
+        CURATED_PLUGINS_STALE_TEMP_DIR_MAX_AGE,
+    );
 
     let clone_dir = tempfile::Builder::new()
-        .prefix("plugins-clone-")
+        .prefix(CURATED_PLUGINS_TEMP_DIR_PREFIX)
         .tempdir_in(parent)
         .map_err(|err| {
             format!(
@@ -395,91 +402,6 @@ fn prepare_curated_repo_parent_and_temp_dir(repo_path: &Path) -> Result<TempDir,
             )
         })?;
     Ok(clone_dir)
-}
-
-fn remove_stale_curated_repo_temp_dirs(parent: &Path, max_age: Duration) {
-    let entries = match std::fs::read_dir(parent) {
-        Ok(entries) => entries,
-        Err(err) => {
-            warn!(
-                error = %err,
-                parent = %parent.display(),
-                "failed to list curated plugins temp directory parent for stale cleanup"
-            );
-            return;
-        }
-    };
-
-    for entry in entries.flatten() {
-        let file_type = match entry.file_type() {
-            Ok(file_type) => file_type,
-            Err(err) => {
-                warn!(
-                    error = %err,
-                    path = %entry.path().display(),
-                    "failed to inspect curated plugins temp directory entry"
-                );
-                continue;
-            }
-        };
-        if !file_type.is_dir() {
-            continue;
-        }
-
-        let path = entry.path();
-        let is_plugins_clone_dir = path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .is_some_and(|name| name.starts_with("plugins-clone-"));
-        if !is_plugins_clone_dir {
-            continue;
-        }
-
-        let metadata = match entry.metadata() {
-            Ok(metadata) => metadata,
-            Err(err) => {
-                warn!(
-                    error = %err,
-                    path = %path.display(),
-                    "failed to read curated plugins temp directory metadata"
-                );
-                continue;
-            }
-        };
-        let modified = match metadata.modified() {
-            Ok(modified) => modified,
-            Err(err) => {
-                warn!(
-                    error = %err,
-                    path = %path.display(),
-                    "failed to read curated plugins temp directory modification time"
-                );
-                continue;
-            }
-        };
-        let age = match modified.elapsed() {
-            Ok(age) => age,
-            Err(err) => {
-                warn!(
-                    error = %err,
-                    path = %path.display(),
-                    "failed to compute curated plugins temp directory age"
-                );
-                continue;
-            }
-        };
-        if age < max_age {
-            continue;
-        }
-
-        if let Err(err) = std::fs::remove_dir_all(&path) {
-            warn!(
-                error = %err,
-                path = %path.display(),
-                "failed to remove stale curated plugins temp directory"
-            );
-        }
-    }
 }
 
 fn emit_curated_plugins_startup_sync_metric(transport: &'static str, status: &'static str) {

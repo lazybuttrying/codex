@@ -1,7 +1,13 @@
+use crate::stale_temp_dirs::remove_stale_temp_dirs;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use std::path::Path;
 use std::process::Command;
+use std::time::Duration;
 use tempfile::TempDir;
+
+const TRUSTED_GIT_REPOSITORY_PREFIX: &str = "git-";
+// Keep this comfortably above a normal Git operation so we do not race another Codex process.
+const TRUSTED_GIT_REPOSITORY_STALE_MAX_AGE: Duration = Duration::from_secs(10 * 60);
 
 // These variables can redirect Git to an untrusted repository or inject command-scoped settings.
 pub(crate) const REPOSITORY_LOCAL_GIT_ENVIRONMENT_VARIABLES: &[&str] = &[
@@ -70,8 +76,14 @@ pub(crate) fn configure_trusted_git_repository(
         return Err("trusted Git repository root escapes Codex home".to_string());
     }
 
+    remove_stale_temp_dirs(
+        staging_root.as_path(),
+        TRUSTED_GIT_REPOSITORY_PREFIX,
+        TRUSTED_GIT_REPOSITORY_STALE_MAX_AGE,
+    );
+
     let repository = tempfile::Builder::new()
-        .prefix("git-")
+        .prefix(TRUSTED_GIT_REPOSITORY_PREFIX)
         .tempdir_in(staging_root.as_path())
         .map_err(|err| format!("failed to create trusted Git repository: {err}"))?;
     for directory in ["objects", "refs"] {
@@ -83,3 +95,7 @@ pub(crate) fn configure_trusted_git_repository(
     command.env("GIT_DIR", repository.path());
     Ok(repository)
 }
+
+#[cfg(test)]
+#[path = "git_policy_tests.rs"]
+mod tests;
