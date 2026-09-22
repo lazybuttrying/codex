@@ -559,3 +559,57 @@ fn run_git(repo: &Path, args: &[&str]) {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn stale_marketplace_staging_and_backup_dirs_are_swept() {
+    use std::os::unix::ffi::OsStrExt;
+    use std::time::SystemTime;
+
+    fn age_dir(path: &Path, age: Duration) {
+        let now = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .expect("clock before epoch");
+        let tv_sec = i64::try_from(now.saturating_sub(age).as_secs()).expect("timestamp range");
+        let ts = libc::timespec { tv_sec, tv_nsec: 0 };
+        let times = [ts, ts];
+        let c_path = std::ffi::CString::new(path.as_os_str().as_bytes()).expect("path bytes");
+        let result = unsafe { libc::utimensat(libc::AT_FDCWD, c_path.as_ptr(), times.as_ptr(), 0) };
+        assert_eq!(result, 0, "{}", std::io::Error::last_os_error());
+    }
+
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let install_root = tmp.path().join("marketplaces");
+    let staging_parent = install_root.join(".staging");
+    std::fs::create_dir_all(&staging_parent).expect("create staging parent");
+
+    let stale_staged = staging_parent.join("marketplace-upgrade-stale");
+    let fresh_staged = staging_parent.join("marketplace-upgrade-fresh");
+    let stale_backup = install_root.join("marketplace-backup-stale");
+    let installed = install_root.join("openai-codex");
+    for dir in [&stale_staged, &fresh_staged, &stale_backup, &installed] {
+        std::fs::create_dir_all(dir).expect("create dir");
+    }
+    let stale_age = MARKETPLACE_STALE_TEMP_DIR_MAX_AGE + Duration::from_secs(60);
+    age_dir(&stale_staged, stale_age);
+    age_dir(&stale_backup, stale_age);
+    age_dir(&fresh_staged, Duration::ZERO);
+    // An installed marketplace must survive even when it has not been touched for months.
+    age_dir(&installed, stale_age);
+
+    crate::stale_temp_dirs::remove_stale_temp_dirs(
+        &staging_parent,
+        MARKETPLACE_UPGRADE_STAGING_PREFIX,
+        MARKETPLACE_STALE_TEMP_DIR_MAX_AGE,
+    );
+    crate::stale_temp_dirs::remove_stale_temp_dirs(
+        &install_root,
+        MARKETPLACE_BACKUP_PREFIX,
+        MARKETPLACE_STALE_TEMP_DIR_MAX_AGE,
+    );
+
+    assert!(!stale_staged.exists());
+    assert!(!stale_backup.exists());
+    assert!(fresh_staged.is_dir());
+    assert!(installed.is_dir());
+}

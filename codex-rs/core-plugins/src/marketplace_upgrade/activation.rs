@@ -107,7 +107,7 @@ pub(super) fn activate_marketplace_root(
 
     if destination.exists() {
         let backup_dir = tempfile::Builder::new()
-            .prefix("marketplace-backup-")
+            .prefix(super::MARKETPLACE_BACKUP_PREFIX)
             .tempdir_in(parent)
             .map_err(|err| {
                 format!(

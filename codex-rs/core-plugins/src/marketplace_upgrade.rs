@@ -26,6 +26,11 @@ use std::time::Duration;
 pub type ConfigLayerReload = Arc<dyn Fn() -> std::io::Result<ConfigLayerStack> + Send + Sync>;
 
 const MARKETPLACE_UPGRADE_GIT_TIMEOUT: Duration = Duration::from_secs(30);
+pub(crate) const MARKETPLACE_UPGRADE_STAGING_PREFIX: &str = "marketplace-upgrade-";
+pub(crate) const MARKETPLACE_BACKUP_PREFIX: &str = "marketplace-backup-";
+// Both guards are released only by `TempDir::drop`, so a process killed mid-upgrade leaks a full
+// marketplace checkout. Every Git step here is bounded by MARKETPLACE_UPGRADE_GIT_TIMEOUT.
+pub(crate) const MARKETPLACE_STALE_TEMP_DIR_MAX_AGE: Duration = Duration::from_secs(10 * 60);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfiguredMarketplaceUpgradeError {
@@ -261,8 +266,19 @@ fn upgrade_configured_git_marketplace(
             staging_parent.display()
         )
     })?;
+    crate::stale_temp_dirs::remove_stale_temp_dirs(
+        &staging_parent,
+        MARKETPLACE_UPGRADE_STAGING_PREFIX,
+        MARKETPLACE_STALE_TEMP_DIR_MAX_AGE,
+    );
+    crate::stale_temp_dirs::remove_stale_temp_dirs(
+        install_root,
+        MARKETPLACE_BACKUP_PREFIX,
+        MARKETPLACE_STALE_TEMP_DIR_MAX_AGE,
+    );
+
     let staged_dir = tempfile::Builder::new()
-        .prefix("marketplace-upgrade-")
+        .prefix(MARKETPLACE_UPGRADE_STAGING_PREFIX)
         .tempdir_in(&staging_parent)
         .map_err(|err| {
             format!(

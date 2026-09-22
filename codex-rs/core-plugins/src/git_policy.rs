@@ -6,8 +6,10 @@ use std::time::Duration;
 use tempfile::TempDir;
 
 const TRUSTED_GIT_REPOSITORY_PREFIX: &str = "git-";
-// Keep this comfortably above a normal Git operation so we do not race another Codex process.
-const TRUSTED_GIT_REPOSITORY_STALE_MAX_AGE: Duration = Duration::from_secs(10 * 60);
+// Not every caller bounds its Git command -- `loader::run_git_output` clones without a timeout --
+// so this stays far above any plausible clone rather than just above the timeouts we do set.
+// Abandoned repositories survive for months, so a day costs nothing to reclaim.
+const TRUSTED_GIT_REPOSITORY_STALE_MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 
 // These variables can redirect Git to an untrusted repository or inject command-scoped settings.
 pub(crate) const REPOSITORY_LOCAL_GIT_ENVIRONMENT_VARIABLES: &[&str] = &[
