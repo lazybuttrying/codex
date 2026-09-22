@@ -40,6 +40,12 @@ const CURATED_PLUGINS_HTTP_TIMEOUT: Duration = Duration::from_secs(30);
 const CURATED_PLUGINS_BACKUP_ARCHIVE_TIMEOUT: Duration = Duration::from_secs(30);
 // Keep this comfortably above a normal sync attempt so we do not race another Codex process.
 const CURATED_PLUGINS_TEMP_DIR_PREFIX: &str = "plugins-clone-";
+const CURATED_PLUGINS_BACKUP_DIR_PREFIX: &str = "plugins-backup-";
+// Both guards live in the same `.tmp` directory and leak the same way when a process dies.
+const CURATED_PLUGINS_STALE_TEMP_DIR_PREFIXES: &[&str] = &[
+    CURATED_PLUGINS_TEMP_DIR_PREFIX,
+    CURATED_PLUGINS_BACKUP_DIR_PREFIX,
+];
 const CURATED_PLUGINS_STALE_TEMP_DIR_MAX_AGE: Duration = Duration::from_secs(10 * 60);
 #[derive(Debug, Deserialize)]
 struct GitHubRepositorySummary {
@@ -386,11 +392,9 @@ fn prepare_curated_repo_parent_and_temp_dir(repo_path: &Path) -> Result<TempDir,
             parent.display()
         )
     })?;
-    remove_stale_temp_dirs(
-        parent,
-        CURATED_PLUGINS_TEMP_DIR_PREFIX,
-        CURATED_PLUGINS_STALE_TEMP_DIR_MAX_AGE,
-    );
+    for prefix in CURATED_PLUGINS_STALE_TEMP_DIR_PREFIXES {
+        remove_stale_temp_dirs(parent, prefix, CURATED_PLUGINS_STALE_TEMP_DIR_MAX_AGE);
+    }
 
     let clone_dir = tempfile::Builder::new()
         .prefix(CURATED_PLUGINS_TEMP_DIR_PREFIX)
@@ -452,7 +456,7 @@ fn activate_curated_repo(repo_path: &Path, staged_repo_dir: TempDir) -> Result<(
             )
         })?;
         let backup_dir = tempfile::Builder::new()
-            .prefix("plugins-backup-")
+            .prefix(CURATED_PLUGINS_BACKUP_DIR_PREFIX)
             .tempdir_in(parent)
             .map_err(|err| {
                 format!(

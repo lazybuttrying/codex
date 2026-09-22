@@ -687,26 +687,38 @@ fn remove_stale_temp_dirs_removes_only_matching_directories() {
     let parent = tmp.path().join(".tmp");
     let stale_clone_dir = parent.join("plugins-clone-stale");
     let fresh_clone_dir = parent.join("plugins-clone-fresh");
+    let stale_backup_dir = parent.join("plugins-backup-stale");
+    let fresh_backup_dir = parent.join("plugins-backup-fresh");
     let unrelated_dir = parent.join("plugins-cache");
 
-    std::fs::create_dir_all(&stale_clone_dir).expect("create stale clone dir");
-    std::fs::create_dir_all(&fresh_clone_dir).expect("create fresh clone dir");
-    std::fs::create_dir_all(&unrelated_dir).expect("create unrelated dir");
-    set_dir_mtime(
+    for dir in [
         &stale_clone_dir,
-        CURATED_PLUGINS_STALE_TEMP_DIR_MAX_AGE + Duration::from_secs(60),
-    )
-    .expect("age stale clone dir");
-    set_dir_mtime(&fresh_clone_dir, Duration::ZERO).expect("age fresh clone dir");
+        &fresh_clone_dir,
+        &stale_backup_dir,
+        &fresh_backup_dir,
+        &unrelated_dir,
+    ] {
+        std::fs::create_dir_all(dir).expect("create dir");
+    }
+    for dir in [&stale_clone_dir, &stale_backup_dir] {
+        set_dir_mtime(
+            dir,
+            CURATED_PLUGINS_STALE_TEMP_DIR_MAX_AGE + Duration::from_secs(60),
+        )
+        .expect("age stale dir");
+    }
+    for dir in [&fresh_clone_dir, &fresh_backup_dir] {
+        set_dir_mtime(dir, Duration::ZERO).expect("age fresh dir");
+    }
 
-    remove_stale_temp_dirs(
-        &parent,
-        CURATED_PLUGINS_TEMP_DIR_PREFIX,
-        CURATED_PLUGINS_STALE_TEMP_DIR_MAX_AGE,
-    );
+    for prefix in CURATED_PLUGINS_STALE_TEMP_DIR_PREFIXES {
+        remove_stale_temp_dirs(&parent, prefix, CURATED_PLUGINS_STALE_TEMP_DIR_MAX_AGE);
+    }
 
     assert!(!stale_clone_dir.exists());
+    assert!(!stale_backup_dir.exists());
     assert!(fresh_clone_dir.is_dir());
+    assert!(fresh_backup_dir.is_dir());
     assert!(unrelated_dir.is_dir());
 }
 
